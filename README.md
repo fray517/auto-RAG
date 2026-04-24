@@ -26,14 +26,21 @@ auto-RAG/
 
 ## Запуск
 
-Пошаговая настройка frontend и детали — в `plan.md` (этап 0 и далее).
+Пошаговые детали — в `plan.md` (этап 0 и далее).
 
-**Backend (Docker):** в корне репозитория: `docker compose up --build`, затем
-проверка `GET http://localhost:8000/health` (ожидается `{"status":"ok"}`).
-Нужен запущенный Docker Desktop (или иной движок) и файл `.env` в корне
-(см. `env.example`).
+**Всё в Docker (backend + frontend):** в корне:
+`docker compose up --build`. UI: `http://localhost:3000` (статус API на
+главной), API: `http://localhost:8000/health`. В `.env` должен быть
+`VITE_API_BASE_URL` (см. `env.example`).
 
-**Backend (локально):** `Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8000`
+**Только backend (локально):**
+`Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8000`
+
+**Только frontend (dev, порт 3000):** в корневом `.env` — `VITE_API_BASE_URL`
+и запуск:
+`Set-Location frontend; npm install; npm run dev`
+(без Docker backend на `http://localhost:8000` статус на главной покажет
+«недоступен»).
 
 ## Лицензия
 

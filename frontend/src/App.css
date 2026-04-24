@@ -1,0 +1,67 @@
+.app {
+  box-sizing: border-box;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 2rem;
+  text-align: left;
+}
+
+.app__header {
+  margin-bottom: 1.75rem;
+}
+
+.app__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.app__status {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.app__status--loading {
+  color: var(--muted);
+}
+
+.app__status--ok {
+  color: var(--ok);
+}
+
+.app__status--error {
+  color: var(--err);
+}
+
+.app__nav-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (min-width: 480px) {
+  .app__nav-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.app__nav-btn {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.app__nav-btn:disabled {
+  pointer-events: none;
+}
