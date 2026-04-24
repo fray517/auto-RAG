@@ -32,8 +32,8 @@ def _status_payload(job: VideoJob) -> VideoJobStatusResponse:
     stage = job.current_stage
     progress = job.progress_percent
     if stage is None and job.status == STATUS_UPLOADED:
-        st, pr = default_stage_for_uploaded()
-        stage, progress = st, pr
+        stage_name, pr = default_stage_for_uploaded()
+        stage, progress = stage_name, pr
     if not stage:
         stage = "unknown"
     return VideoJobStatusResponse(
@@ -43,18 +43,6 @@ def _status_payload(job: VideoJob) -> VideoJobStatusResponse:
         progress_percent=progress,
         error=job.last_error,
     )
-
-
-@router.get("/{job_id}/status", response_model=VideoJobStatusResponse)
-def get_video_job_status(
-    job_id: int,
-    db: Session = Depends(get_session),
-) -> VideoJobStatusResponse:
-    """Текущий статус, этап, прогресс и ошибка (если были)."""
-    job = db.get(VideoJob, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Задача не найдена")
-    return _status_payload(job)
 
 
 def _safe_client_name(name: str) -> str:
@@ -86,11 +74,11 @@ async def upload_video(
             ),
         )
 
-    st, pr = default_stage_for_uploaded()
+    stage_name, pr = default_stage_for_uploaded()
     job = VideoJob(
         filename=client_name,
         status=STATUS_UPLOADED,
-        current_stage=st,
+        current_stage=stage_name,
         progress_percent=pr,
         last_error=None,
     )
@@ -139,3 +127,15 @@ async def upload_video(
         filename=job.filename,
         stored_path=rel,
     )
+
+
+@router.get("/{job_id}/status", response_model=VideoJobStatusResponse)
+def get_video_job_status(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> VideoJobStatusResponse:
+    """Текущий статус, этап, прогресс и ошибка (если были)."""
+    job = db.get(VideoJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return _status_payload(job)
