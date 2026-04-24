@@ -26,7 +26,14 @@ auto-RAG/
 
 ## Запуск
 
-Пошаговая настройка backend, frontend и Docker — в `plan.md` (этап 0 и далее).
+Пошаговая настройка frontend и детали — в `plan.md` (этап 0 и далее).
+
+**Backend (Docker):** в корне репозитория: `docker compose up --build`, затем
+проверка `GET http://localhost:8000/health` (ожидается `{"status":"ok"}`).
+Нужен запущенный Docker Desktop (или иной движок) и файл `.env` в корне
+(см. `env.example`).
+
+**Backend (локально):** `Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8000`
 
 ## Лицензия
 

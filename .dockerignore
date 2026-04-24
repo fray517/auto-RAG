@@ -1,0 +1,25 @@
+# Git и метаданные
+.git
+.gitignore
+
+# Python
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Локальные данные и фронт (не в образе backend)
+frontend
+data
+exports
+temp
+node_modules
+
+# Планы и доки не нужны в образе
+plan.md
+technical_specification.md
+LICENSE
+.env

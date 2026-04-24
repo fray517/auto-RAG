@@ -1,4 +1,17 @@
-# Сервисы backend и frontend будут добавлены на шагах 0.2 и 0.3.
+# Frontend будет добавлен в шаге 0.3.
 name: auto-rag
 
-services: {}
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+      - ./exports:/app/exports
+      - ./temp:/app/temp
