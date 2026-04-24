@@ -23,6 +23,10 @@ class VideoJob(Base):
         String(1024),
         nullable=True,
     )
+    key_frames_count: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

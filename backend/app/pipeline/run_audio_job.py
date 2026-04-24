@@ -1,4 +1,4 @@
-"""Фоновая задача: извлечение аудио (план, шаг 3.1)."""
+"""Фоновая задача: аудио (3.1) и ключевые кадры (3.2)."""
 
 import logging
 
@@ -7,10 +7,12 @@ from app.db.session import create_db_session
 from app.domain.pipeline_stages import (
     STAGE_AUDIO_EXTRACTION,
     STAGE_FRAME_ANALYSIS,
+    STAGE_TRANSCRIPTION,
     progress_for_stage_id,
 )
 from app.models.video_job import VideoJob
 from app.services.audio_ffmpeg import extract_audio_wav, find_input_video
+from app.services.keyframes_ffmpeg import extract_keyframes_to_dir
 
 log = logging.getLogger(__name__)
 
@@ -20,8 +22,8 @@ STATUS_FAILED = "failed"
 
 def run_audio_extraction_job(job_id: int) -> None:
     """
-    Статус: processing, этап audio_extraction; по успеху — путь к WAV,
-    этап frame_analysis (следующий в плане — 3.2).
+    Этап audio_extraction: WAV; затем frame_analysis: кадры в
+    {job_id}/frames; по успеху — transcription.
     """
     db = create_db_session()
     try:
@@ -53,14 +55,27 @@ def run_audio_extraction_job(job_id: int) -> None:
             STAGE_FRAME_ANALYSIS,
         )
         db.commit()
+
+        frames_dir = job_dir / "frames"
+        kf_n = extract_keyframes_to_dir(video_path, frames_dir)
+        j = db.get(VideoJob, job_id)
+        if j is None:
+            return
+        j.key_frames_count = kf_n
+        j.current_stage = STAGE_TRANSCRIPTION
+        j.progress_percent = progress_for_stage_id(STAGE_TRANSCRIPTION)
+        db.commit()
     except Exception as exc:  # noqa: BLE001
-        log.exception("Сбой извлечения аудио job_id=%s", job_id)
+        log.exception("Сбой извлечения аудио/кадров job_id=%s", job_id)
         try:
             job = db.get(VideoJob, job_id)
             if job is not None:
                 job.last_error = str(exc)[:2000]
                 job.status = STATUS_FAILED
-                job.current_stage = STAGE_AUDIO_EXTRACTION
+                if job.audio_path is None:
+                    job.current_stage = STAGE_AUDIO_EXTRACTION
+                else:
+                    job.current_stage = STAGE_FRAME_ANALYSIS
                 db.commit()
         except Exception:  # noqa: BLE001
             log.exception("Не удалось записать ошибку job_id=%s", job_id)
