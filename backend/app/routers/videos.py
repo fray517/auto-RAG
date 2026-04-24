@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_temp_path
 from app.db.session import get_session
+from app.domain.pipeline_stages import default_stage_for_uploaded
 from app.models.video_job import VideoJob
+from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -23,6 +25,36 @@ ALLOWED_VIDEO_SUFFIXES = frozenset({
 STATUS_UPLOADED = "uploaded"
 
 _READ_CHUNK = 1024 * 1024
+
+
+def _status_payload(job: VideoJob) -> VideoJobStatusResponse:
+    """Собрать ответ; для старых записей — fallback по status."""
+    stage = job.current_stage
+    progress = job.progress_percent
+    if stage is None and job.status == STATUS_UPLOADED:
+        st, pr = default_stage_for_uploaded()
+        stage, progress = st, pr
+    if not stage:
+        stage = "unknown"
+    return VideoJobStatusResponse(
+        job_id=job.id,
+        status=job.status,
+        stage=stage,
+        progress_percent=progress,
+        error=job.last_error,
+    )
+
+
+@router.get("/{job_id}/status", response_model=VideoJobStatusResponse)
+def get_video_job_status(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> VideoJobStatusResponse:
+    """Текущий статус, этап, прогресс и ошибка (если были)."""
+    job = db.get(VideoJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return _status_payload(job)
 
 
 def _safe_client_name(name: str) -> str:
@@ -54,9 +86,13 @@ async def upload_video(
             ),
         )
 
+    st, pr = default_stage_for_uploaded()
     job = VideoJob(
         filename=client_name,
         status=STATUS_UPLOADED,
+        current_stage=st,
+        progress_percent=pr,
+        last_error=None,
     )
     db.add(job)
     db.flush()
