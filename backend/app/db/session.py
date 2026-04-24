@@ -42,3 +42,11 @@ def get_session() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def create_db_session() -> Session:
+    """Сессия для фоновых задач; закрывать вручную в finally."""
+    get_engine()
+    if _SessionLocal is None:
+        raise RuntimeError("Session factory is not initialized")
+    return _SessionLocal()

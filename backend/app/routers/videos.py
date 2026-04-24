@@ -2,13 +2,21 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 from app.core.config import get_temp_path
 from app.db.session import get_session
 from app.domain.pipeline_stages import default_stage_for_uploaded
 from app.models.video_job import VideoJob
+from app.pipeline.run_audio_job import run_audio_extraction_job
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 
@@ -55,6 +63,7 @@ def _safe_client_name(name: str) -> str:
 
 @router.post("/upload", response_model=VideoUploadResponse)
 async def upload_video(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Один видеофайл"),
     db: Session = Depends(get_session),
 ) -> VideoUploadResponse:
@@ -119,6 +128,8 @@ async def upload_video(
 
     db.commit()
     db.refresh(job)
+
+    background_tasks.add_task(run_audio_extraction_job, job.id)
 
     rel = f"{job.id}/{stored_name}"
     return VideoUploadResponse(
