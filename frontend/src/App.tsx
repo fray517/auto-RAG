@@ -19,7 +19,7 @@ function getApiBaseUrl(): string {
   if (typeof base === 'string' && base.trim() !== '') {
     return base.replace(/\/$/, '')
   }
-  return 'http://localhost:8000'
+  return 'http://localhost:8005'
 }
 
 function App() {

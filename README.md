@@ -30,16 +30,16 @@ auto-RAG/
 
 **Всё в Docker (backend + frontend):** в корне:
 `docker compose up --build`. UI: `http://localhost:3000` (статус API на
-главной), API: `http://localhost:8000/health`. В `.env` должен быть
+главной), API: `http://localhost:8005/health`. В `.env` должен быть
 `VITE_API_BASE_URL` (см. `env.example`).
 
 **Только backend (локально):**
-`Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8000`
+`Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8005`
 
 **Только frontend (dev, порт 3000):** в корневом `.env` — `VITE_API_BASE_URL`
 и запуск:
 `Set-Location frontend; npm install; npm run dev`
-(без Docker backend на `http://localhost:8000` статус на главной покажет
+(без Docker backend на `http://localhost:8005` статус на главной покажет
 «недоступен»).
 
 ## Лицензия
