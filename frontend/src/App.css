@@ -180,6 +180,134 @@
   margin: 0.2rem 0;
 }
 
+/* Processing (шаг 2.4) */
+.processing__title {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.processing__intro,
+.processing__form-block .processing__intro {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.processing__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.processing__label {
+  width: 100%;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.processing__input {
+  flex: 1;
+  min-width: 8rem;
+  padding: 0.45rem 0.5rem;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.processing__go {
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.processing__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.processing__meta-item {
+  margin: 0;
+}
+
+.processing__change-id {
+  margin-left: auto;
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.processing__loading {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+}
+
+.processing__err {
+  margin: 0 0 0.75rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.9rem;
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+  border-radius: 0.375rem;
+}
+
+.processing__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.processing__step {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  font-size: 0.92rem;
+}
+
+.processing__step-num {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.processing__step--done {
+  opacity: 0.75;
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+}
+
+.processing__step--active {
+  border-color: var(--ok);
+  font-weight: 500;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.processing__step--pending {
+  color: var(--muted);
+}
+
 @media (max-width: 400px) {
   .app__header .app__title {
     line-height: 1.2;

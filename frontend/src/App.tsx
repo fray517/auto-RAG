@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { getApiBaseUrl } from './config'
+import { ProcessingPage } from './pages/ProcessingPage'
 import { UploadPage } from './pages/UploadPage'
 import './App.css'
 
 type HealthState = 'loading' | 'ok' | 'error'
 
-type Section = 'home' | 'upload'
+type Section = 'home' | 'upload' | 'processing'
 
 const STUB_BEFORE_UPLOAD = ['Dashboard'] as const
-const STUB_AFTER_UPLOAD = [
-  'Processing',
+const STUB_AFTER_PROCESSING = [
   'Transcript',
   'Materials',
   'Chat',
@@ -20,6 +20,9 @@ const STUB_AFTER_UPLOAD = [
 function App() {
   const [health, setHealth] = useState<HealthState>('loading')
   const [section, setSection] = useState<Section>('home')
+  const [processingJobId, setProcessingJobId] = useState<number | null>(
+    null,
+  )
 
   useEffect(() => {
     const base = getApiBaseUrl()
@@ -63,7 +66,9 @@ function App() {
           <button
             type="button"
             className="app__brand"
-            onClick={() => setSection('home')}
+            onClick={() => {
+              setSection('home')
+            }}
           >
             auto-RAG
           </button>
@@ -99,7 +104,20 @@ function App() {
               Upload
             </button>
           </li>
-          {STUB_AFTER_UPLOAD.map((name) => (
+          <li>
+            <button
+              type="button"
+              className={
+                section === 'processing'
+                  ? 'app__nav-btn app__nav-btn--active'
+                  : 'app__nav-btn app__nav-btn--link'
+              }
+              onClick={() => setSection('processing')}
+            >
+              Processing
+            </button>
+          </li>
+          {STUB_AFTER_PROCESSING.map((name) => (
             <li key={name}>
               <button type="button" className="app__nav-btn" disabled>
                 {name}
@@ -112,11 +130,28 @@ function App() {
       <main className="app__main">
         {section === 'home' ? (
           <p className="app__hint">
-            Выберите раздел в меню. Загрузка видео — «Upload».
+            Выберите раздел: загрузка — «Upload», этапы — «Processing».
           </p>
-        ) : (
-          <UploadPage />
-        )}
+        ) : null}
+        {section === 'upload' ? (
+          <UploadPage
+            onJobCreated={(jobId) => {
+              setProcessingJobId(jobId)
+              setSection('processing')
+            }}
+          />
+        ) : null}
+        {section === 'processing' ? (
+          <ProcessingPage
+            key={
+              processingJobId === null
+                ? 'processing-idle'
+                : `processing-${processingJobId}`
+            }
+            jobId={processingJobId}
+            onSetJobId={setProcessingJobId}
+          />
+        ) : null}
       </main>
     </div>
   )

@@ -31,7 +31,12 @@ function formatApiError(data: unknown): string {
   return 'Ошибка запроса'
 }
 
-export function UploadPage() {
+type UploadPageProps = {
+  /** Автоматический переход к обработке с этим job_id. */
+  onJobCreated?: (jobId: number) => void
+}
+
+export function UploadPage({ onJobCreated }: UploadPageProps) {
   const id = useId()
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +64,9 @@ export function UploadPage() {
         setError(formatApiError(data))
         return
       }
-      setResult(data as UploadResponse)
+      const u = data as UploadResponse
+      setResult(u)
+      onJobCreated?.(u.job_id)
     } catch {
       setError('Не удалось связаться с сервером. Проверьте сеть и API.')
     } finally {
