@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.env import load_env
 from app.db.migrate import run_migrations
+from app.routers import videos
 
 load_env()
 
@@ -35,6 +36,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(videos.router)
 
 
 @app.get("/health")
