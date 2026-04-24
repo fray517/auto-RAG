@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_database_url
 from app.db.base import Base
-from app.models import video_job  # noqa: F401
+import app.models  # noqa: F401
 
 target_metadata = Base.metadata
 
