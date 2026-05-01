@@ -25,6 +25,26 @@ class RawTranscriptUpdateRequest(BaseModel):
     content: str = Field(description="Обновлённый сырой текст")
 
 
+class CleanTranscriptResponse(BaseModel):
+    """Результат генерации очищенной транскрипции."""
+
+    job_id: int = Field(description="Идентификатор задачи обработки")
+    content: str | None = Field(
+        default=None,
+        description="Очищенная и структурированная транскрипция",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Время последнего сохранения clean transcript",
+    )
+
+
+class CleanTranscriptUpdateRequest(BaseModel):
+    """Тело PUT /videos/{job_id}/clean-transcript."""
+
+    content: str = Field(description="Обновлённый очищенный текст")
+
+
 class OcrResultItem(BaseModel):
     """Один OCR-результат по ключевому кадру."""
 

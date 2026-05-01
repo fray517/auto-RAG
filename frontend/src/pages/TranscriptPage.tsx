@@ -7,6 +7,8 @@ type RawTranscriptResponse = {
   updated_at: string | null
 }
 
+type CleanTranscriptResponse = RawTranscriptResponse
+
 type SlideItem = {
   id: number
   sort_order: number
@@ -58,9 +60,13 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
   const [draftId, setDraftId] = useState('')
   const [content, setContent] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [cleanContent, setCleanContent] = useState('')
+  const [cleanUpdatedAt, setCleanUpdatedAt] = useState<string | null>(null)
   const [slides, setSlides] = useState<SlideItem[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [cleanSaving, setCleanSaving] = useState(false)
+  const [cleanGenerating, setCleanGenerating] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -77,11 +83,13 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       setMessage(null)
       try {
         const base = getApiBaseUrl()
-        const [rawRes, slidesRes] = await Promise.all([
+        const [rawRes, cleanRes, slidesRes] = await Promise.all([
           fetch(`${base}/videos/${jobId}/raw-transcript`),
+          fetch(`${base}/videos/${jobId}/clean-transcript`),
           fetch(`${base}/videos/${jobId}/slides`),
         ])
         const rawData: unknown = await rawRes.json()
+        const cleanData: unknown = await cleanRes.json()
         const slidesData: unknown = await slidesRes.json()
         if (!rawRes.ok) {
           throw new Error(
@@ -93,19 +101,29 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
             getApiError(slidesData, `Slides HTTP ${slidesRes.status}`),
           )
         }
+        if (!cleanRes.ok) {
+          throw new Error(
+            getApiError(cleanData, `Clean HTTP ${cleanRes.status}`),
+          )
+        }
         if (cancelled) {
           return
         }
         const raw = rawData as RawTranscriptResponse
+        const clean = cleanData as CleanTranscriptResponse
         const selectedSlides = slidesData as SlidesResponse
         setContent(raw.content ?? '')
         setUpdatedAt(raw.updated_at)
+        setCleanContent(clean.content ?? '')
+        setCleanUpdatedAt(clean.updated_at)
         setSlides(selectedSlides.items)
       } catch (e) {
         if (!cancelled && e instanceof Error) {
           setError(e.message)
           setContent('')
           setUpdatedAt(null)
+          setCleanContent('')
+          setCleanUpdatedAt(null)
           setSlides([])
         }
       } finally {
@@ -153,6 +171,70 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function generateCleanTranscript() {
+    if (jobId == null) {
+      return
+    }
+    setCleanGenerating(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const res = await fetch(
+        `${getApiBaseUrl()}/videos/${jobId}/clean-transcript/generate`,
+        { method: 'POST' },
+      )
+      const data: unknown = await res.json()
+      if (!res.ok) {
+        throw new Error(getApiError(data, `HTTP ${res.status}`))
+      }
+      const clean = data as CleanTranscriptResponse
+      setCleanContent(clean.content ?? '')
+      setCleanUpdatedAt(clean.updated_at)
+      setMessage('Очищенная транскрипция сгенерирована.')
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message)
+      }
+    } finally {
+      setCleanGenerating(false)
+    }
+  }
+
+  async function saveCleanTranscript() {
+    if (jobId == null) {
+      return
+    }
+    setCleanSaving(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const res = await fetch(
+        `${getApiBaseUrl()}/videos/${jobId}/clean-transcript`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({ content: cleanContent }),
+        },
+      )
+      const data: unknown = await res.json()
+      if (!res.ok) {
+        throw new Error(getApiError(data, `HTTP ${res.status}`))
+      }
+      const saved = data as CleanTranscriptResponse
+      setCleanContent(saved.content ?? '')
+      setCleanUpdatedAt(saved.updated_at)
+      setMessage('Очищенная транскрипция сохранена.')
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message)
+      }
+    } finally {
+      setCleanSaving(false)
     }
   }
 
@@ -210,6 +292,8 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
                 setDraftId('')
                 setContent('')
                 setUpdatedAt(null)
+                setCleanContent('')
+                setCleanUpdatedAt(null)
                 setSlides([])
                 setError(null)
                 setMessage(null)
@@ -283,12 +367,50 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
           </div>
 
           <section className="transcript__panel transcript__clean">
-            <h3 className="transcript__subtitle">
-              Очищенная транскрипция
-            </h3>
-            <p className="transcript__muted">
-              Место подготовлено для шага 6.1.
-            </p>
+            <div className="transcript__clean-head">
+              <div>
+                <h3 className="transcript__subtitle">
+                  Очищенная транскрипция
+                </h3>
+                <p className="transcript__muted">
+                  Обновлено: {formatUpdatedAt(cleanUpdatedAt)}
+                </p>
+              </div>
+              <button
+                className="transcript__btn transcript__btn--primary"
+                type="button"
+                disabled={loading || cleanGenerating || !content.trim()}
+                onClick={() => {
+                  void generateCleanTranscript()
+                }}
+              >
+                {cleanGenerating ? 'Генерация…' : 'Сгенерировать'}
+              </button>
+            </div>
+            {cleanContent ? (
+              <>
+                <textarea
+                  className="transcript__textarea transcript__textarea--clean"
+                  value={cleanContent}
+                  onChange={(e) => setCleanContent(e.target.value)}
+                  disabled={loading || cleanSaving || cleanGenerating}
+                />
+                <button
+                  className="transcript__btn transcript__btn--primary"
+                  type="button"
+                  disabled={loading || cleanSaving || cleanGenerating}
+                  onClick={() => {
+                    void saveCleanTranscript()
+                  }}
+                >
+                  {cleanSaving ? 'Сохранение…' : 'Сохранить clean'}
+                </button>
+              </>
+            ) : (
+              <p className="transcript__muted">
+                Нажмите «Сгенерировать», чтобы создать clean transcript.
+              </p>
+            )}
           </section>
         </>
       )}

@@ -542,6 +542,23 @@
   margin-top: 1rem;
 }
 
+.transcript__clean-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.transcript__clean-head .transcript__subtitle {
+  margin-bottom: 0.25rem;
+}
+
+.transcript__textarea--clean {
+  min-height: 16rem;
+}
+
 .transcript__muted {
   margin: 0;
   color: var(--muted);

@@ -18,12 +18,18 @@ from sqlalchemy.orm import Session
 from app.core.config import get_temp_path
 from app.core.responses import Utf8JSONResponse
 from app.db.session import get_session
-from app.domain.pipeline_stages import default_stage_for_uploaded
+from app.domain.pipeline_stages import (
+    STAGE_TRANSCRIPT_CLEANING,
+    default_stage_for_uploaded,
+    progress_for_stage_id,
+)
 from app.models.ocr_result import OcrResult
-from app.models.transcripts import RawTranscript
+from app.models.transcripts import CleanTranscript, RawTranscript
 from app.models.video_job import VideoJob
 from app.pipeline.run_audio_job import run_audio_extraction_job
 from app.schemas.video_results import (
+    CleanTranscriptResponse,
+    CleanTranscriptUpdateRequest,
     OcrResultItem,
     OcrResultsResponse,
     RawTranscriptResponse,
@@ -35,6 +41,7 @@ from app.schemas.video_results import (
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 from app.services.audio_ffmpeg import find_input_video
+from app.services.clean_transcript_llm import clean_transcript
 from app.services.keyframes_ffmpeg import extract_frame_at_timestamp
 
 router = APIRouter(
@@ -52,6 +59,8 @@ ALLOWED_VIDEO_SUFFIXES = frozenset({
 })
 
 STATUS_UPLOADED = "uploaded"
+STATUS_FAILED = "failed"
+STATUS_PROCESSING = "processing"
 
 _READ_CHUNK = 1024 * 1024
 
@@ -116,6 +125,16 @@ def _slide_item(job_id: int, row: OcrResult) -> SlideItem:
         source_hint=source_hint,
         image_url=_slide_image_url(job_id, row.id),
     )
+
+
+def _collect_ocr_text(job_id: int, db: Session) -> str:
+    rows = db.execute(
+        select(OcrResult)
+        .where(OcrResult.video_job_id == job_id)
+        .where(OcrResult.text.is_not(None))
+        .order_by(OcrResult.sort_order, OcrResult.id),
+    ).scalars()
+    return "\n\n".join(row.text or "" for row in rows).strip()
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -353,6 +372,120 @@ def update_raw_transcript(
         job_id=job_id,
         content=raw.content,
         updated_at=raw.updated_at,
+    )
+
+
+@router.get(
+    "/{job_id}/clean-transcript",
+    response_model=CleanTranscriptResponse,
+)
+def get_clean_transcript(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> CleanTranscriptResponse:
+    """Получить очищенную транскрипцию, если она уже создана."""
+    _get_job_or_404(job_id, db)
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    return CleanTranscriptResponse(
+        job_id=job_id,
+        content=clean.content if clean is not None else None,
+        updated_at=clean.updated_at if clean is not None else None,
+    )
+
+
+@router.put(
+    "/{job_id}/clean-transcript",
+    response_model=CleanTranscriptResponse,
+)
+def update_clean_transcript(
+    job_id: int,
+    payload: CleanTranscriptUpdateRequest,
+    db: Session = Depends(get_session),
+) -> CleanTranscriptResponse:
+    """Сохранить ручные правки очищенной транскрипции."""
+    _get_job_or_404(job_id, db)
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    if clean is None:
+        clean = CleanTranscript(
+            video_job_id=job_id,
+            content=payload.content,
+        )
+        db.add(clean)
+    else:
+        clean.content = payload.content
+
+    db.commit()
+    db.refresh(clean)
+    return CleanTranscriptResponse(
+        job_id=job_id,
+        content=clean.content,
+        updated_at=clean.updated_at,
+    )
+
+
+@router.post(
+    "/{job_id}/clean-transcript/generate",
+    response_model=CleanTranscriptResponse,
+)
+def generate_clean_transcript(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> CleanTranscriptResponse:
+    """Сгенерировать clean transcript из raw transcript и OCR-контекста."""
+    job = _get_job_or_404(job_id, db)
+    raw = db.execute(
+        select(RawTranscript).where(RawTranscript.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if raw is None or not (raw.content or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Сырая транскрипция ещё не готова.",
+        )
+
+    job.status = STATUS_PROCESSING
+    job.current_stage = STAGE_TRANSCRIPT_CLEANING
+    job.progress_percent = progress_for_stage_id(STAGE_TRANSCRIPT_CLEANING)
+    job.last_error = None
+    db.commit()
+
+    try:
+        clean_text = clean_transcript(
+            raw_text=raw.content or "",
+            ocr_text=_collect_ocr_text(job_id, db),
+        )
+    except RuntimeError as err:
+        job = db.get(VideoJob, job_id)
+        if job is not None:
+            job.status = STATUS_FAILED
+            job.last_error = str(err)[:2000]
+            db.commit()
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    if clean is None:
+        clean = CleanTranscript(video_job_id=job_id, content=clean_text)
+        db.add(clean)
+    else:
+        clean.content = clean_text
+
+    db.commit()
+    db.refresh(clean)
+    return CleanTranscriptResponse(
+        job_id=job_id,
+        content=clean.content,
+        updated_at=clean.updated_at,
     )
 
 
