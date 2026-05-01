@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import { getApiBaseUrl } from './config'
 import { ProcessingPage } from './pages/ProcessingPage'
+import { TranscriptPage } from './pages/TranscriptPage'
 import { UploadPage } from './pages/UploadPage'
 import './App.css'
 
 type HealthState = 'loading' | 'ok' | 'error'
 
-type Section = 'home' | 'upload' | 'processing'
+type Section = 'home' | 'upload' | 'processing' | 'transcript'
 
 const STUB_BEFORE_UPLOAD = ['Dashboard'] as const
 const STUB_AFTER_PROCESSING = [
-  'Transcript',
   'Materials',
   'Chat',
   'Visualization',
@@ -117,6 +117,19 @@ function App() {
               Processing
             </button>
           </li>
+          <li>
+            <button
+              type="button"
+              className={
+                section === 'transcript'
+                  ? 'app__nav-btn app__nav-btn--active'
+                  : 'app__nav-btn app__nav-btn--link'
+              }
+              onClick={() => setSection('transcript')}
+            >
+              Transcript
+            </button>
+          </li>
           {STUB_AFTER_PROCESSING.map((name) => (
             <li key={name}>
               <button type="button" className="app__nav-btn" disabled>
@@ -148,6 +161,12 @@ function App() {
                 ? 'processing-idle'
                 : `processing-${processingJobId}`
             }
+            jobId={processingJobId}
+            onSetJobId={setProcessingJobId}
+          />
+        ) : null}
+        {section === 'transcript' ? (
+          <TranscriptPage
             jobId={processingJobId}
             onSetJobId={setProcessingJobId}
           />

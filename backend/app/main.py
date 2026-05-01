@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.env import load_env
+from app.core.responses import Utf8JSONResponse
 from app.db.migrate import run_migrations
 from app.routers import videos
 
@@ -24,6 +25,7 @@ app = FastAPI(
     title="auto-RAG API",
     version="0.1.0",
     lifespan=lifespan,
+    default_response_class=Utf8JSONResponse,
 )
 
 app.add_middleware(

@@ -10,17 +10,31 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_temp_path
+from app.core.responses import Utf8JSONResponse
 from app.db.session import get_session
 from app.domain.pipeline_stages import default_stage_for_uploaded
+from app.models.ocr_result import OcrResult
+from app.models.transcripts import RawTranscript
 from app.models.video_job import VideoJob
 from app.pipeline.run_audio_job import run_audio_extraction_job
+from app.schemas.video_results import (
+    OcrResultItem,
+    OcrResultsResponse,
+    RawTranscriptResponse,
+    RawTranscriptUpdateRequest,
+)
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 
-router = APIRouter(prefix="/videos", tags=["videos"])
+router = APIRouter(
+    prefix="/videos",
+    tags=["videos"],
+    default_response_class=Utf8JSONResponse,
+)
 
 ALLOWED_VIDEO_SUFFIXES = frozenset({
     ".mp4",
@@ -59,6 +73,14 @@ def _safe_client_name(name: str) -> str:
     if not base or base in (".", ".."):
         return "video"
     return base
+
+
+def _get_job_or_404(job_id: int, db: Session) -> VideoJob:
+    """Вернуть задачу или единообразный 404."""
+    job = db.get(VideoJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+    return job
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -146,7 +168,81 @@ def get_video_job_status(
     db: Session = Depends(get_session),
 ) -> VideoJobStatusResponse:
     """Текущий статус, этап, прогресс и ошибка (если были)."""
-    job = db.get(VideoJob, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Задача не найдена")
+    job = _get_job_or_404(job_id, db)
     return _status_payload(job)
+
+
+@router.get(
+    "/{job_id}/raw-transcript",
+    response_model=RawTranscriptResponse,
+)
+def get_raw_transcript(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> RawTranscriptResponse:
+    """Сырой транскрипт, если этап транскрибации уже сохранил результат."""
+    _get_job_or_404(job_id, db)
+    raw = db.execute(
+        select(RawTranscript).where(RawTranscript.video_job_id == job_id),
+    ).scalar_one_or_none()
+    return RawTranscriptResponse(
+        job_id=job_id,
+        content=raw.content if raw is not None else None,
+        updated_at=raw.updated_at if raw is not None else None,
+    )
+
+
+@router.put(
+    "/{job_id}/raw-transcript",
+    response_model=RawTranscriptResponse,
+)
+def update_raw_transcript(
+    job_id: int,
+    payload: RawTranscriptUpdateRequest,
+    db: Session = Depends(get_session),
+) -> RawTranscriptResponse:
+    """Сохранить ручные правки сырой транскрипции."""
+    _get_job_or_404(job_id, db)
+    raw = db.execute(
+        select(RawTranscript).where(RawTranscript.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if raw is None:
+        raw = RawTranscript(
+            video_job_id=job_id,
+            content=payload.content,
+        )
+        db.add(raw)
+    else:
+        raw.content = payload.content
+
+    db.commit()
+    db.refresh(raw)
+    return RawTranscriptResponse(
+        job_id=job_id,
+        content=raw.content,
+        updated_at=raw.updated_at,
+    )
+
+
+@router.get("/{job_id}/ocr", response_model=OcrResultsResponse)
+def get_ocr_results(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> OcrResultsResponse:
+    """OCR-результаты по ключевым кадрам в порядке обработки."""
+    _get_job_or_404(job_id, db)
+    rows = db.execute(
+        select(OcrResult)
+        .where(OcrResult.video_job_id == job_id)
+        .order_by(OcrResult.sort_order, OcrResult.id),
+    ).scalars()
+    items = [
+        OcrResultItem(
+            id=row.id,
+            sort_order=row.sort_order,
+            source_hint=row.source_hint,
+            text=row.text,
+        )
+        for row in rows
+    ]
+    return OcrResultsResponse(job_id=job_id, items=items)
