@@ -45,6 +45,54 @@ class CleanTranscriptUpdateRequest(BaseModel):
     content: str = Field(description="Обновлённый очищенный текст")
 
 
+class SummaryResponse(BaseModel):
+    """Конспект по очищенной транскрипции."""
+
+    job_id: int = Field(description="Идентификатор задачи обработки")
+    content: str | None = Field(
+        default=None,
+        description="Сгенерированный конспект",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Время последнего сохранения конспекта",
+    )
+
+
+class MaterialUpdateRequest(BaseModel):
+    """Тело PUT для итоговых учебных материалов."""
+
+    content: str = Field(description="Обновлённый текст материала")
+
+
+class ManualGuideResponse(BaseModel):
+    """Методичка по очищенной транскрипции."""
+
+    job_id: int = Field(description="Идентификатор задачи обработки")
+    content: str | None = Field(
+        default=None,
+        description="Сгенерированная методичка",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Время последнего сохранения методички",
+    )
+
+
+class ChecklistResponse(BaseModel):
+    """Чек-лист по очищенной транскрипции."""
+
+    job_id: int = Field(description="Идентификатор задачи обработки")
+    content: str | None = Field(
+        default=None,
+        description="Сгенерированный чек-лист",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Время последнего сохранения чек-листа",
+    )
+
+
 class OcrResultItem(BaseModel):
     """Один OCR-результат по ключевому кадру."""
 

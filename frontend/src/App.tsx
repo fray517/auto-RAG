@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getApiBaseUrl } from './config'
+import { ChatPage } from './pages/ChatPage'
+import { MaterialsPage } from './pages/MaterialsPage'
 import { ProcessingPage } from './pages/ProcessingPage'
 import { TranscriptPage } from './pages/TranscriptPage'
 import { UploadPage } from './pages/UploadPage'
@@ -7,12 +9,16 @@ import './App.css'
 
 type HealthState = 'loading' | 'ok' | 'error'
 
-type Section = 'home' | 'upload' | 'processing' | 'transcript'
+type Section =
+  | 'home'
+  | 'upload'
+  | 'processing'
+  | 'transcript'
+  | 'materials'
+  | 'chat'
 
 const STUB_BEFORE_UPLOAD = ['Dashboard'] as const
 const STUB_AFTER_PROCESSING = [
-  'Materials',
-  'Chat',
   'Visualization',
   'Settings',
 ] as const
@@ -130,6 +136,32 @@ function App() {
               Transcript
             </button>
           </li>
+          <li>
+            <button
+              type="button"
+              className={
+                section === 'materials'
+                  ? 'app__nav-btn app__nav-btn--active'
+                  : 'app__nav-btn app__nav-btn--link'
+              }
+              onClick={() => setSection('materials')}
+            >
+              Materials
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className={
+                section === 'chat'
+                  ? 'app__nav-btn app__nav-btn--active'
+                  : 'app__nav-btn app__nav-btn--link'
+              }
+              onClick={() => setSection('chat')}
+            >
+              Chat
+            </button>
+          </li>
           {STUB_AFTER_PROCESSING.map((name) => (
             <li key={name}>
               <button type="button" className="app__nav-btn" disabled>
@@ -144,7 +176,8 @@ function App() {
         {section === 'home' ? (
           <p className="app__hint">
             Выберите раздел: загрузка — «Upload», этапы — «Processing»,
-            транскрипт — «Transcript».
+            транскрипт — «Transcript», материалы — «Materials», чат —
+            «Chat».
           </p>
         ) : null}
         {section === 'upload' ? (
@@ -171,6 +204,13 @@ function App() {
             onSetJobId={setProcessingJobId}
           />
         ) : null}
+        {section === 'materials' ? (
+          <MaterialsPage
+            jobId={processingJobId}
+            onSetJobId={setProcessingJobId}
+          />
+        ) : null}
+        {section === 'chat' ? <ChatPage /> : null}
       </main>
     </div>
   )

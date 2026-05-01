@@ -1,6 +1,9 @@
 """Очистка сырой транскрипции через LLM."""
 
+import base64
+import mimetypes
 import os
+from pathlib import Path
 
 from openai import OpenAI, OpenAIError
 
@@ -8,6 +11,7 @@ from app.core.env import load_env
 
 DEFAULT_CLEAN_MODEL = "gpt-4.1-mini"
 MAX_INPUT_CHARS = 120_000
+MAX_SLIDE_IMAGES = 20
 
 
 def get_clean_transcript_model() -> str:
@@ -17,22 +21,51 @@ def get_clean_transcript_model() -> str:
     return model or DEFAULT_CLEAN_MODEL
 
 
-def _build_user_prompt(raw_text: str, ocr_text: str) -> str:
-    ocr_block = ocr_text.strip() or "OCR-текста нет."
-    return (
-        "Сырая транскрипция:\n"
-        f"{raw_text.strip()}\n\n"
-        "OCR/текст со слайдов, если есть:\n"
-        f"{ocr_block}\n\n"
-        "Верни только очищенную транскрипцию."
-    )
+def _image_data_url(path: Path) -> str:
+    media_type, _ = mimetypes.guess_type(path.name)
+    media_type = media_type or "image/jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
 
 
-def clean_transcript(raw_text: str, ocr_text: str = "") -> str:
+def _build_user_content(
+    raw_text: str,
+    slide_image_paths: list[Path],
+) -> list[dict[str, object]]:
+    content: list[dict[str, object]] = [
+        {
+            "type": "text",
+            "text": (
+                "Сырая транскрипция:\n"
+                f"{raw_text.strip()}\n\n"
+                "Ниже приложены сохранённые пользователем слайды. "
+                "Используй их как визуальный контекст для терминов, "
+                "структуры и примеров, но не заменяй ими речь.\n\n"
+                "Верни только очищенную транскрипцию."
+            ),
+        },
+    ]
+    for slide_path in slide_image_paths[:MAX_SLIDE_IMAGES]:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": _image_data_url(slide_path),
+                    "detail": "low",
+                },
+            },
+        )
+    return content
+
+
+def clean_transcript(
+    raw_text: str,
+    slide_image_paths: list[Path] | None = None,
+) -> str:
     """
     Убрать воду и слова-паразиты, сохранив смысл лекции.
 
-    OCR используется как дополнительный контекст, но не должен заменять речь.
+    Сохранённые слайды используются как визуальный контекст.
     """
     load_env()
     api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
@@ -44,6 +77,7 @@ def clean_transcript(raw_text: str, ocr_text: str = "") -> str:
         raise RuntimeError("Сырая транскрипция пуста.")
     if len(raw_text) > MAX_INPUT_CHARS:
         raw_text = raw_text[:MAX_INPUT_CHARS]
+    slide_image_paths = slide_image_paths or []
 
     client = OpenAI(api_key=api_key)
     system_prompt = (
@@ -61,7 +95,10 @@ def clean_transcript(raw_text: str, ocr_text: str = "") -> str:
                 {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": _build_user_prompt(raw_text, ocr_text),
+                    "content": _build_user_content(
+                        raw_text,
+                        slide_image_paths,
+                    ),
                 },
             ],
         )

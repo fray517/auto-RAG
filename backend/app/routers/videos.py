@@ -19,17 +19,22 @@ from app.core.config import get_temp_path
 from app.core.responses import Utf8JSONResponse
 from app.db.session import get_session
 from app.domain.pipeline_stages import (
+    STAGE_MATERIAL_GENERATION,
     STAGE_TRANSCRIPT_CLEANING,
     default_stage_for_uploaded,
     progress_for_stage_id,
 )
+from app.models.materials import Checklist, ManualGuide, Summary
 from app.models.ocr_result import OcrResult
 from app.models.transcripts import CleanTranscript, RawTranscript
 from app.models.video_job import VideoJob
 from app.pipeline.run_audio_job import run_audio_extraction_job
 from app.schemas.video_results import (
+    ChecklistResponse,
     CleanTranscriptResponse,
     CleanTranscriptUpdateRequest,
+    ManualGuideResponse,
+    MaterialUpdateRequest,
     OcrResultItem,
     OcrResultsResponse,
     RawTranscriptResponse,
@@ -37,12 +42,16 @@ from app.schemas.video_results import (
     SlideCaptureRequest,
     SlideItem,
     SlidesResponse,
+    SummaryResponse,
 )
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 from app.services.audio_ffmpeg import find_input_video
+from app.services.checklist_llm import generate_checklist
 from app.services.clean_transcript_llm import clean_transcript
 from app.services.keyframes_ffmpeg import extract_frame_at_timestamp
+from app.services.manual_guide_llm import generate_manual_guide
+from app.services.summary_llm import generate_summary
 
 router = APIRouter(
     prefix="/videos",
@@ -127,14 +136,26 @@ def _slide_item(job_id: int, row: OcrResult) -> SlideItem:
     )
 
 
-def _collect_ocr_text(job_id: int, db: Session) -> str:
+def _collect_slide_paths(job_id: int, db: Session) -> list[Path]:
     rows = db.execute(
         select(OcrResult)
         .where(OcrResult.video_job_id == job_id)
-        .where(OcrResult.text.is_not(None))
+        .where(OcrResult.source_hint.like("slide_%"))
         .order_by(OcrResult.sort_order, OcrResult.id),
     ).scalars()
-    return "\n\n".join(row.text or "" for row in rows).strip()
+    slides_dir = (_get_job_dir(job_id) / "slides").resolve()
+    paths: list[Path] = []
+    for row in rows:
+        if not row.source_hint:
+            continue
+        slide_path = (slides_dir / row.source_hint).resolve()
+        try:
+            slide_path.relative_to(slides_dir)
+        except ValueError:
+            continue
+        if slide_path.is_file():
+            paths.append(slide_path)
+    return paths
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -439,7 +460,7 @@ def generate_clean_transcript(
     job_id: int,
     db: Session = Depends(get_session),
 ) -> CleanTranscriptResponse:
-    """Сгенерировать clean transcript из raw transcript и OCR-контекста."""
+    """Сгенерировать clean transcript из raw transcript и слайдов."""
     job = _get_job_or_404(job_id, db)
     raw = db.execute(
         select(RawTranscript).where(RawTranscript.video_job_id == job_id),
@@ -459,7 +480,7 @@ def generate_clean_transcript(
     try:
         clean_text = clean_transcript(
             raw_text=raw.content or "",
-            ocr_text=_collect_ocr_text(job_id, db),
+            slide_image_paths=_collect_slide_paths(job_id, db),
         )
     except RuntimeError as err:
         job = db.get(VideoJob, job_id)
@@ -486,6 +507,306 @@ def generate_clean_transcript(
         job_id=job_id,
         content=clean.content,
         updated_at=clean.updated_at,
+    )
+
+
+@router.get("/{job_id}/summary", response_model=SummaryResponse)
+def get_summary(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> SummaryResponse:
+    """Получить конспект, если он уже создан."""
+    _get_job_or_404(job_id, db)
+    summary = db.execute(
+        select(Summary).where(Summary.video_job_id == job_id),
+    ).scalar_one_or_none()
+    return SummaryResponse(
+        job_id=job_id,
+        content=summary.content if summary is not None else None,
+        updated_at=summary.updated_at if summary is not None else None,
+    )
+
+
+@router.put("/{job_id}/summary", response_model=SummaryResponse)
+def update_summary(
+    job_id: int,
+    payload: MaterialUpdateRequest,
+    db: Session = Depends(get_session),
+) -> SummaryResponse:
+    """Сохранить ручную правку конспекта."""
+    _get_job_or_404(job_id, db)
+    summary = db.execute(
+        select(Summary).where(Summary.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if summary is None:
+        summary = Summary(video_job_id=job_id, content=payload.content)
+        db.add(summary)
+    else:
+        summary.content = payload.content
+
+    db.commit()
+    db.refresh(summary)
+    return SummaryResponse(
+        job_id=job_id,
+        content=summary.content,
+        updated_at=summary.updated_at,
+    )
+
+
+@router.post("/{job_id}/summary/generate", response_model=SummaryResponse)
+def generate_video_summary(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> SummaryResponse:
+    """Сгенерировать конспект из clean transcript и сохранённых слайдов."""
+    job = _get_job_or_404(job_id, db)
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    if clean is None or not (clean.content or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Очищенная транскрипция ещё не готова.",
+        )
+
+    job.status = STATUS_PROCESSING
+    job.current_stage = STAGE_MATERIAL_GENERATION
+    job.progress_percent = progress_for_stage_id(STAGE_MATERIAL_GENERATION)
+    job.last_error = None
+    db.commit()
+
+    try:
+        summary_text = generate_summary(
+            clean_text=clean.content or "",
+            slide_image_paths=_collect_slide_paths(job_id, db),
+        )
+    except RuntimeError as err:
+        job = db.get(VideoJob, job_id)
+        if job is not None:
+            job.status = STATUS_FAILED
+            job.last_error = str(err)[:2000]
+            db.commit()
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    summary = db.execute(
+        select(Summary).where(Summary.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if summary is None:
+        summary = Summary(video_job_id=job_id, content=summary_text)
+        db.add(summary)
+    else:
+        summary.content = summary_text
+
+    db.commit()
+    db.refresh(summary)
+    return SummaryResponse(
+        job_id=job_id,
+        content=summary.content,
+        updated_at=summary.updated_at,
+    )
+
+
+@router.get("/{job_id}/manual-guide", response_model=ManualGuideResponse)
+def get_manual_guide(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> ManualGuideResponse:
+    """Получить методичку, если она уже создана."""
+    _get_job_or_404(job_id, db)
+    manual = db.execute(
+        select(ManualGuide).where(ManualGuide.video_job_id == job_id),
+    ).scalar_one_or_none()
+    return ManualGuideResponse(
+        job_id=job_id,
+        content=manual.content if manual is not None else None,
+        updated_at=manual.updated_at if manual is not None else None,
+    )
+
+
+@router.put("/{job_id}/manual-guide", response_model=ManualGuideResponse)
+def update_manual_guide(
+    job_id: int,
+    payload: MaterialUpdateRequest,
+    db: Session = Depends(get_session),
+) -> ManualGuideResponse:
+    """Сохранить ручную правку методички."""
+    _get_job_or_404(job_id, db)
+    manual = db.execute(
+        select(ManualGuide).where(ManualGuide.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if manual is None:
+        manual = ManualGuide(video_job_id=job_id, content=payload.content)
+        db.add(manual)
+    else:
+        manual.content = payload.content
+
+    db.commit()
+    db.refresh(manual)
+    return ManualGuideResponse(
+        job_id=job_id,
+        content=manual.content,
+        updated_at=manual.updated_at,
+    )
+
+
+@router.post(
+    "/{job_id}/manual-guide/generate",
+    response_model=ManualGuideResponse,
+)
+def generate_video_manual_guide(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> ManualGuideResponse:
+    """Сгенерировать методичку из clean transcript и сохранённых слайдов."""
+    job = _get_job_or_404(job_id, db)
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    if clean is None or not (clean.content or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Очищенная транскрипция ещё не готова.",
+        )
+
+    job.status = STATUS_PROCESSING
+    job.current_stage = STAGE_MATERIAL_GENERATION
+    job.progress_percent = progress_for_stage_id(STAGE_MATERIAL_GENERATION)
+    job.last_error = None
+    db.commit()
+
+    try:
+        manual_text = generate_manual_guide(
+            clean_text=clean.content or "",
+            slide_image_paths=_collect_slide_paths(job_id, db),
+        )
+    except RuntimeError as err:
+        job = db.get(VideoJob, job_id)
+        if job is not None:
+            job.status = STATUS_FAILED
+            job.last_error = str(err)[:2000]
+            db.commit()
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    manual = db.execute(
+        select(ManualGuide).where(ManualGuide.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if manual is None:
+        manual = ManualGuide(video_job_id=job_id, content=manual_text)
+        db.add(manual)
+    else:
+        manual.content = manual_text
+
+    db.commit()
+    db.refresh(manual)
+    return ManualGuideResponse(
+        job_id=job_id,
+        content=manual.content,
+        updated_at=manual.updated_at,
+    )
+
+
+@router.get("/{job_id}/checklist", response_model=ChecklistResponse)
+def get_checklist(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> ChecklistResponse:
+    """Получить чек-лист, если он уже создан."""
+    _get_job_or_404(job_id, db)
+    checklist = db.execute(
+        select(Checklist).where(Checklist.video_job_id == job_id),
+    ).scalar_one_or_none()
+    return ChecklistResponse(
+        job_id=job_id,
+        content=checklist.content if checklist is not None else None,
+        updated_at=checklist.updated_at if checklist is not None else None,
+    )
+
+
+@router.put("/{job_id}/checklist", response_model=ChecklistResponse)
+def update_checklist(
+    job_id: int,
+    payload: MaterialUpdateRequest,
+    db: Session = Depends(get_session),
+) -> ChecklistResponse:
+    """Сохранить ручную правку чек-листа."""
+    _get_job_or_404(job_id, db)
+    checklist = db.execute(
+        select(Checklist).where(Checklist.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if checklist is None:
+        checklist = Checklist(video_job_id=job_id, content=payload.content)
+        db.add(checklist)
+    else:
+        checklist.content = payload.content
+
+    db.commit()
+    db.refresh(checklist)
+    return ChecklistResponse(
+        job_id=job_id,
+        content=checklist.content,
+        updated_at=checklist.updated_at,
+    )
+
+
+@router.post(
+    "/{job_id}/checklist/generate",
+    response_model=ChecklistResponse,
+)
+def generate_video_checklist(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> ChecklistResponse:
+    """Сгенерировать чек-лист из clean transcript и сохранённых слайдов."""
+    job = _get_job_or_404(job_id, db)
+    clean = db.execute(
+        select(CleanTranscript).where(
+            CleanTranscript.video_job_id == job_id,
+        ),
+    ).scalar_one_or_none()
+    if clean is None or not (clean.content or "").strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Очищенная транскрипция ещё не готова.",
+        )
+
+    job.status = STATUS_PROCESSING
+    job.current_stage = STAGE_MATERIAL_GENERATION
+    job.progress_percent = progress_for_stage_id(STAGE_MATERIAL_GENERATION)
+    job.last_error = None
+    db.commit()
+
+    try:
+        checklist_text = generate_checklist(
+            clean_text=clean.content or "",
+            slide_image_paths=_collect_slide_paths(job_id, db),
+        )
+    except RuntimeError as err:
+        job = db.get(VideoJob, job_id)
+        if job is not None:
+            job.status = STATUS_FAILED
+            job.last_error = str(err)[:2000]
+            db.commit()
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    checklist = db.execute(
+        select(Checklist).where(Checklist.video_job_id == job_id),
+    ).scalar_one_or_none()
+    if checklist is None:
+        checklist = Checklist(video_job_id=job_id, content=checklist_text)
+        db.add(checklist)
+    else:
+        checklist.content = checklist_text
+
+    db.commit()
+    db.refresh(checklist)
+    return ChecklistResponse(
+        job_id=job_id,
+        content=checklist.content,
+        updated_at=checklist.updated_at,
     )
 
 

@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.env import load_env
 from app.core.responses import Utf8JSONResponse
 from app.db.migrate import run_migrations
+from app.routers import chat
+from app.routers import knowledge
 from app.routers import videos
 
 load_env()
@@ -41,6 +43,8 @@ app.add_middleware(
 
 
 app.include_router(videos.router)
+app.include_router(knowledge.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")
