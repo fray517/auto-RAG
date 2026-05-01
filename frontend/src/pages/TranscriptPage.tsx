@@ -7,16 +7,16 @@ type RawTranscriptResponse = {
   updated_at: string | null
 }
 
-type OcrItem = {
+type SlideItem = {
   id: number
   sort_order: number
-  source_hint: string | null
-  text: string | null
+  source_hint: string
+  image_url: string
 }
 
-type OcrResultsResponse = {
+type SlidesResponse = {
   job_id: number
-  items: OcrItem[]
+  items: SlideItem[]
 }
 
 type Props = {
@@ -58,7 +58,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
   const [draftId, setDraftId] = useState('')
   const [content, setContent] = useState('')
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
-  const [ocrItems, setOcrItems] = useState<OcrItem[]>([])
+  const [slides, setSlides] = useState<SlideItem[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -77,34 +77,36 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       setMessage(null)
       try {
         const base = getApiBaseUrl()
-        const [rawRes, ocrRes] = await Promise.all([
+        const [rawRes, slidesRes] = await Promise.all([
           fetch(`${base}/videos/${jobId}/raw-transcript`),
-          fetch(`${base}/videos/${jobId}/ocr`),
+          fetch(`${base}/videos/${jobId}/slides`),
         ])
         const rawData: unknown = await rawRes.json()
-        const ocrData: unknown = await ocrRes.json()
+        const slidesData: unknown = await slidesRes.json()
         if (!rawRes.ok) {
           throw new Error(
             getApiError(rawData, `Raw transcript HTTP ${rawRes.status}`),
           )
         }
-        if (!ocrRes.ok) {
-          throw new Error(getApiError(ocrData, `OCR HTTP ${ocrRes.status}`))
+        if (!slidesRes.ok) {
+          throw new Error(
+            getApiError(slidesData, `Slides HTTP ${slidesRes.status}`),
+          )
         }
         if (cancelled) {
           return
         }
         const raw = rawData as RawTranscriptResponse
-        const ocr = ocrData as OcrResultsResponse
+        const selectedSlides = slidesData as SlidesResponse
         setContent(raw.content ?? '')
         setUpdatedAt(raw.updated_at)
-        setOcrItems(ocr.items)
+        setSlides(selectedSlides.items)
       } catch (e) {
         if (!cancelled && e instanceof Error) {
           setError(e.message)
           setContent('')
           setUpdatedAt(null)
-          setOcrItems([])
+          setSlides([])
         }
       } finally {
         if (!cancelled) {
@@ -171,7 +173,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
         Transcript
       </h2>
       <p className="transcript__intro">
-        Просмотр OCR и ручная правка сырой транскрипции.
+        Просмотр выбранных слайдов и ручная правка сырой транскрипции.
       </p>
 
       {jobId == null ? (
@@ -208,7 +210,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
                 setDraftId('')
                 setContent('')
                 setUpdatedAt(null)
-                setOcrItems([])
+                setSlides([])
                 setError(null)
                 setMessage(null)
               }}
@@ -252,24 +254,26 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
 
             <section
               className="transcript__panel"
-              aria-labelledby={`${id}-ocr-h`}
+              aria-labelledby={`${id}-slides-h`}
             >
-              <h3 className="transcript__subtitle" id={`${id}-ocr-h`}>
-                OCR по ключевым кадрам
+              <h3 className="transcript__subtitle" id={`${id}-slides-h`}>
+                Выбранные слайды
               </h3>
-              {ocrItems.length === 0 ? (
+              {slides.length === 0 ? (
                 <p className="transcript__muted">
-                  OCR-результатов пока нет.
+                  Слайды пока не выбраны на странице Upload.
                 </p>
               ) : (
                 <ol className="transcript__ocr-list">
-                  {ocrItems.map((item) => (
+                  {slides.map((item) => (
                     <li className="transcript__ocr-item" key={item.id}>
+                      <img
+                        className="transcript__slide-img"
+                        src={`${getApiBaseUrl()}${item.image_url}`}
+                        alt={`Слайд ${item.sort_order + 1}`}
+                      />
                       <p className="transcript__ocr-source">
-                        {item.source_hint ?? `кадр ${item.sort_order + 1}`}
-                      </p>
-                      <p className="transcript__ocr-text">
-                        {item.text || 'Текст не распознан.'}
+                        {item.source_hint}
                       </p>
                     </li>
                   ))}

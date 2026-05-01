@@ -10,6 +10,7 @@ services:
     ports:
       - "8005:8000"
     working_dir: /app
+    gpus: all
     volumes:
       - ./data:/app/data
       - ./exports:/app/exports

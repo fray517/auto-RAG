@@ -1,7 +1,10 @@
 alembic>=1.14.0
+ctranslate2==4.6.0
 fastapi>=0.115.0
+faster-whisper>=1.1.0
+nvidia-cublas-cu12==12.6.4.1
+nvidia-cudnn-cu12==9.5.1.17
 openai>=1.0.0
-pytesseract>=0.3.13
 python-dotenv>=1.0.0
 python-multipart>=0.0.9
 sqlalchemy>=2.0.0

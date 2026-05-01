@@ -109,3 +109,47 @@ def extract_keyframes_to_dir(
         raise RuntimeError("Не извлечён ни один кадр (keyframes).")
     n = _subsample_excess(frames_dir, _MAX_KEYFRAMES)
     return n
+
+
+def extract_frame_at_timestamp(
+    video_path: Path,
+    output_path: Path,
+    timestamp_seconds: float,
+) -> None:
+    """Сохранить один кадр видео по позиции, выбранной пользователем."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = max(0.0, timestamp_seconds)
+    vf = "scale=min(1280\\,iw):-2:flags=bicubic"
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{timestamp:.3f}",
+        "-i",
+        str(video_path),
+        "-frames:v",
+        "1",
+        "-vf",
+        vf,
+        "-q:v",
+        "2",
+        str(output_path),
+    ]
+    proc = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()
+        if len(tail) > 400:
+            tail = tail[:400] + "…"
+        raise RuntimeError(
+            f"ffmpeg (ручной слайд) код {proc.returncode}: {tail}",
+        )
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        raise RuntimeError("Слайд не создан или пуст.")

@@ -18,7 +18,7 @@ export type StageId = (typeof STAGE_ORDER)[number]
 export const STAGE_LABELS_RU: Record<StageId, string> = {
   file_upload: 'Загрузка файла',
   audio_extraction: 'Извлечение аудио',
-  frame_analysis: 'Анализ кадров/слайдов',
+  frame_analysis: 'Слайды выбираются вручную',
   transcription: 'Транскрибация',
   transcript_cleaning: 'Очистка транскрипции',
   material_generation: 'Генерация материалов',

@@ -1,5 +1,6 @@
 """Загрузка и обработка видео."""
 
+import mimetypes
 from pathlib import Path
 
 from fastapi import (
@@ -10,7 +11,8 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
-from sqlalchemy import select
+from fastapi.responses import FileResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_temp_path
@@ -26,9 +28,14 @@ from app.schemas.video_results import (
     OcrResultsResponse,
     RawTranscriptResponse,
     RawTranscriptUpdateRequest,
+    SlideCaptureRequest,
+    SlideItem,
+    SlidesResponse,
 )
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
+from app.services.audio_ffmpeg import find_input_video
+from app.services.keyframes_ffmpeg import extract_frame_at_timestamp
 
 router = APIRouter(
     prefix="/videos",
@@ -81,6 +88,34 @@ def _get_job_or_404(job_id: int, db: Session) -> VideoJob:
     if job is None:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     return job
+
+
+def _get_job_dir(job_id: int) -> Path:
+    return (get_temp_path() / str(job_id)).resolve()
+
+
+def _get_input_video_or_404(job_id: int) -> Path:
+    try:
+        return find_input_video(_get_job_dir(job_id))
+    except FileNotFoundError as err:
+        raise HTTPException(
+            status_code=404,
+            detail="Видео файл задачи не найден.",
+        ) from err
+
+
+def _slide_image_url(job_id: int, slide_id: int) -> str:
+    return f"/videos/{job_id}/slides/{slide_id}/image"
+
+
+def _slide_item(job_id: int, row: OcrResult) -> SlideItem:
+    source_hint = row.source_hint or f"slide_{row.id}.jpg"
+    return SlideItem(
+        id=row.id,
+        sort_order=row.sort_order,
+        source_hint=source_hint,
+        image_url=_slide_image_url(job_id, row.id),
+    )
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -170,6 +205,103 @@ def get_video_job_status(
     """Текущий статус, этап, прогресс и ошибка (если были)."""
     job = _get_job_or_404(job_id, db)
     return _status_payload(job)
+
+
+@router.get("/{job_id}/file")
+def get_video_file(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> FileResponse:
+    """Исходное видео для просмотра в браузере."""
+    job = _get_job_or_404(job_id, db)
+    video_path = _get_input_video_or_404(job_id)
+    media_type, _ = mimetypes.guess_type(video_path.name)
+    return FileResponse(
+        path=video_path,
+        media_type=media_type or "video/mp4",
+        filename=job.filename,
+    )
+
+
+@router.get("/{job_id}/slides", response_model=SlidesResponse)
+def get_slides(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> SlidesResponse:
+    """Список слайдов, которые пользователь сохранил вручную."""
+    _get_job_or_404(job_id, db)
+    rows = db.execute(
+        select(OcrResult)
+        .where(OcrResult.video_job_id == job_id)
+        .where(OcrResult.source_hint.like("slide_%"))
+        .order_by(OcrResult.sort_order, OcrResult.id),
+    ).scalars()
+    items = [_slide_item(job_id, row) for row in rows]
+    return SlidesResponse(job_id=job_id, items=items)
+
+
+@router.post("/{job_id}/slides", response_model=SlideItem)
+def capture_slide(
+    job_id: int,
+    payload: SlideCaptureRequest,
+    db: Session = Depends(get_session),
+) -> SlideItem:
+    """Сохранить кадр видео по текущей позиции плеера."""
+    _get_job_or_404(job_id, db)
+    video_path = _get_input_video_or_404(job_id)
+    max_order = db.execute(
+        select(func.max(OcrResult.sort_order)).where(
+            OcrResult.video_job_id == job_id,
+        ),
+    ).scalar_one()
+    sort_order = 0 if max_order is None else max_order + 1
+    timestamp_tag = int(payload.timestamp_seconds * 1000)
+    filename = f"slide_{sort_order:04d}_{timestamp_tag:010d}.jpg"
+    output_path = _get_job_dir(job_id) / "slides" / filename
+
+    try:
+        extract_frame_at_timestamp(
+            video_path=video_path,
+            output_path=output_path,
+            timestamp_seconds=payload.timestamp_seconds,
+        )
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    row = OcrResult(
+        video_job_id=job_id,
+        sort_order=sort_order,
+        source_hint=filename,
+        text=None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _slide_item(job_id, row)
+
+
+@router.get("/{job_id}/slides/{slide_id}/image")
+def get_slide_image(
+    job_id: int,
+    slide_id: int,
+    db: Session = Depends(get_session),
+) -> FileResponse:
+    """Изображение сохранённого вручную слайда."""
+    _get_job_or_404(job_id, db)
+    row = db.get(OcrResult, slide_id)
+    if row is None or row.video_job_id != job_id or not row.source_hint:
+        raise HTTPException(status_code=404, detail="Слайд не найден")
+    slide_path = (_get_job_dir(job_id) / "slides" / row.source_hint).resolve()
+    try:
+        slide_path.relative_to((_get_job_dir(job_id) / "slides").resolve())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Некорректный путь слайда.",
+        ) from None
+    if not slide_path.is_file():
+        raise HTTPException(status_code=404, detail="Файл слайда не найден")
+    return FileResponse(path=slide_path, media_type="image/jpeg")
 
 
 @router.get(

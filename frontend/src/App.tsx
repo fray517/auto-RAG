@@ -143,14 +143,14 @@ function App() {
       <main className="app__main">
         {section === 'home' ? (
           <p className="app__hint">
-            Выберите раздел: загрузка — «Upload», этапы — «Processing».
+            Выберите раздел: загрузка — «Upload», этапы — «Processing»,
+            транскрипт — «Transcript».
           </p>
         ) : null}
         {section === 'upload' ? (
           <UploadPage
             onJobCreated={(jobId) => {
               setProcessingJobId(jobId)
-              setSection('processing')
             }}
           />
         ) : null}

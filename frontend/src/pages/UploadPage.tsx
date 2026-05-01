@@ -1,4 +1,4 @@
-import { type FormEvent, useId, useState } from 'react'
+import { type FormEvent, useId, useRef, useState } from 'react'
 import { getApiBaseUrl } from '../config'
 
 type UploadResponse = {
@@ -6,6 +6,13 @@ type UploadResponse = {
   status: string
   filename: string
   stored_path: string
+}
+
+type SlideItem = {
+  id: number
+  sort_order: number
+  source_hint: string
+  image_url: string
 }
 
 function formatApiError(data: unknown): string {
@@ -38,15 +45,21 @@ type UploadPageProps = {
 
 export function UploadPage({ onJobCreated }: UploadPageProps) {
   const id = useId()
+  const videoRef = useRef<HTMLVideoElement | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<UploadResponse | null>(null)
+  const [slides, setSlides] = useState<SlideItem[]>([])
+  const [slideSaving, setSlideSaving] = useState(false)
+  const [slideError, setSlideError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setResult(null)
+    setSlides([])
+    setSlideError(null)
     if (!file) {
       setError('Выберите видеофайл.')
       return
@@ -71,6 +84,38 @@ export function UploadPage({ onJobCreated }: UploadPageProps) {
       setError('Не удалось связаться с сервером. Проверьте сеть и API.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function captureSlide() {
+    if (!result || !videoRef.current) {
+      return
+    }
+    setSlideSaving(true)
+    setSlideError(null)
+    try {
+      const res = await fetch(
+        `${getApiBaseUrl()}/videos/${result.job_id}/slides`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+          body: JSON.stringify({
+            timestamp_seconds: videoRef.current.currentTime,
+          }),
+        },
+      )
+      const data: unknown = await res.json()
+      if (!res.ok) {
+        setSlideError(formatApiError(data))
+        return
+      }
+      setSlides((items) => [...items, data as SlideItem])
+    } catch {
+      setSlideError('Не удалось сохранить слайд.')
+    } finally {
+      setSlideSaving(false)
     }
   }
 
@@ -99,6 +144,8 @@ export function UploadPage({ onJobCreated }: UploadPageProps) {
               setFile(f)
               setError(null)
               setResult(null)
+              setSlides([])
+              setSlideError(null)
             }}
           />
         </div>
@@ -126,6 +173,52 @@ export function UploadPage({ onJobCreated }: UploadPageProps) {
           <p className="upload__ok-line">
             <strong>файл:</strong> {result.filename}
           </p>
+        </div>
+      ) : null}
+      {result ? (
+        <div className="upload__video-block">
+          <video
+            ref={videoRef}
+            className="upload__video"
+            controls
+            src={`${getApiBaseUrl()}/videos/${result.job_id}/file`}
+          >
+            Ваш браузер не поддерживает просмотр видео.
+          </video>
+          <button
+            className="upload__slide-btn"
+            type="button"
+            disabled={slideSaving}
+            onClick={() => {
+              void captureSlide()
+            }}
+          >
+            {slideSaving ? 'Сохраняю слайд…' : 'Сделать слайд'}
+          </button>
+          {slideError ? (
+            <p className="upload__err" role="alert">
+              {slideError}
+            </p>
+          ) : null}
+          {slides.length > 0 ? (
+            <div className="upload__slides">
+              <h3 className="upload__slides-title">Выбранные слайды</h3>
+              <ol className="upload__slides-list">
+                {slides.map((item) => (
+                  <li className="upload__slide" key={item.id}>
+                    <img
+                      className="upload__slide-img"
+                      src={`${getApiBaseUrl()}${item.image_url}`}
+                      alt={`Слайд ${item.sort_order + 1}`}
+                    />
+                    <span className="upload__slide-name">
+                      {item.source_hint}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>
