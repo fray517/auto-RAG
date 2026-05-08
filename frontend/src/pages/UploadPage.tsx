@@ -1,4 +1,5 @@
 import { type FormEvent, useId, useRef, useState } from 'react'
+import { formatApiErrorMessage } from '../api/apiError'
 import { getApiBaseUrl } from '../config'
 
 type UploadResponse = {
@@ -13,29 +14,6 @@ type SlideItem = {
   sort_order: number
   source_hint: string
   image_url: string
-}
-
-function formatApiError(data: unknown): string {
-  if (data && typeof data === 'object' && 'detail' in data) {
-    const detail = (data as { detail: unknown }).detail
-    if (typeof detail === 'string') {
-      return detail
-    }
-    if (Array.isArray(detail)) {
-      const parts = detail
-        .map((item) => {
-          if (item && typeof item === 'object' && 'msg' in item) {
-            return String((item as { msg: unknown }).msg)
-          }
-          return null
-        })
-        .filter(Boolean)
-      if (parts.length > 0) {
-        return parts.join(' ')
-      }
-    }
-  }
-  return 'Ошибка запроса'
 }
 
 type UploadPageProps = {
@@ -74,7 +52,7 @@ export function UploadPage({ onJobCreated }: UploadPageProps) {
       })
       const data: unknown = await res.json()
       if (!res.ok) {
-        setError(formatApiError(data))
+        setError(formatApiErrorMessage(data, 'Ошибка запроса'))
         return
       }
       const u = data as UploadResponse
@@ -108,7 +86,9 @@ export function UploadPage({ onJobCreated }: UploadPageProps) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        setSlideError(formatApiError(data))
+        setSlideError(
+          formatApiErrorMessage(data, 'Ошибка сохранения слайда'),
+        )
         return
       }
       setSlides((items) => [...items, data as SlideItem])

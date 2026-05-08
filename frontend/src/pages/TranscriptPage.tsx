@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useId, useState } from 'react'
+import { formatApiErrorMessage } from '../api/apiError'
 import { getApiBaseUrl } from '../config'
 
 type RawTranscriptResponse = {
@@ -32,16 +33,6 @@ function parseJobIdInput(raw: string): number | null {
     return null
   }
   return n
-}
-
-function getApiError(data: unknown, fallback: string): string {
-  if (data && typeof data === 'object' && 'detail' in data) {
-    const detail = (data as { detail: unknown }).detail
-    if (typeof detail === 'string') {
-      return detail
-    }
-  }
-  return fallback
 }
 
 function formatUpdatedAt(value: string | null): string {
@@ -93,17 +84,17 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
         const slidesData: unknown = await slidesRes.json()
         if (!rawRes.ok) {
           throw new Error(
-            getApiError(rawData, `Raw transcript HTTP ${rawRes.status}`),
+            formatApiErrorMessage(rawData, `Raw transcript HTTP ${rawRes.status}`),
           )
         }
         if (!slidesRes.ok) {
           throw new Error(
-            getApiError(slidesData, `Slides HTTP ${slidesRes.status}`),
+            formatApiErrorMessage(slidesData, `Slides HTTP ${slidesRes.status}`),
           )
         }
         if (!cleanRes.ok) {
           throw new Error(
-            getApiError(cleanData, `Clean HTTP ${cleanRes.status}`),
+            formatApiErrorMessage(cleanData, `Clean HTTP ${cleanRes.status}`),
           )
         }
         if (cancelled) {
@@ -159,7 +150,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(formatApiErrorMessage(data, `HTTP ${res.status}`))
       }
       const saved = data as RawTranscriptResponse
       setContent(saved.content ?? '')
@@ -188,7 +179,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(formatApiErrorMessage(data, `HTTP ${res.status}`))
       }
       const clean = data as CleanTranscriptResponse
       setCleanContent(clean.content ?? '')
@@ -223,7 +214,7 @@ export function TranscriptPage({ jobId, onSetJobId }: Props) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(formatApiErrorMessage(data, `HTTP ${res.status}`))
       }
       const saved = data as CleanTranscriptResponse
       setCleanContent(saved.content ?? '')

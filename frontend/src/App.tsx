@@ -5,6 +5,7 @@ import { MaterialsPage } from './pages/MaterialsPage'
 import { ProcessingPage } from './pages/ProcessingPage'
 import { TranscriptPage } from './pages/TranscriptPage'
 import { UploadPage } from './pages/UploadPage'
+import { VisualizationPage } from './pages/VisualizationPage'
 import './App.css'
 
 type HealthState = 'loading' | 'ok' | 'error'
@@ -15,11 +16,11 @@ type Section =
   | 'processing'
   | 'transcript'
   | 'materials'
+  | 'visualization'
   | 'chat'
 
 const STUB_BEFORE_UPLOAD = ['Dashboard'] as const
 const STUB_AFTER_PROCESSING = [
-  'Visualization',
   'Settings',
 ] as const
 
@@ -162,6 +163,19 @@ function App() {
               Chat
             </button>
           </li>
+          <li>
+            <button
+              type="button"
+              className={
+                section === 'visualization'
+                  ? 'app__nav-btn app__nav-btn--active'
+                  : 'app__nav-btn app__nav-btn--link'
+              }
+              onClick={() => setSection('visualization')}
+            >
+              Visualization
+            </button>
+          </li>
           {STUB_AFTER_PROCESSING.map((name) => (
             <li key={name}>
               <button type="button" className="app__nav-btn" disabled>
@@ -177,7 +191,7 @@ function App() {
           <p className="app__hint">
             Выберите раздел: загрузка — «Upload», этапы — «Processing»,
             транскрипт — «Transcript», материалы — «Materials», чат —
-            «Chat».
+            «Chat», визуализация — «Visualization».
           </p>
         ) : null}
         {section === 'upload' ? (
@@ -211,6 +225,12 @@ function App() {
           />
         ) : null}
         {section === 'chat' ? <ChatPage /> : null}
+        {section === 'visualization' ? (
+          <VisualizationPage
+            jobId={processingJobId}
+            onSetJobId={setProcessingJobId}
+          />
+        ) : null}
       </main>
     </div>
   )

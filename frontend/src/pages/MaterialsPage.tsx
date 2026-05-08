@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useId, useState } from 'react'
+import { formatApiErrorMessage } from '../api/apiError'
 import { getApiBaseUrl } from '../config'
 
 type MaterialKind = 'summary' | 'manual-guide' | 'checklist'
@@ -69,17 +70,6 @@ function parseJobIdInput(raw: string): number | null {
   return n
 }
 
-function getApiError(data: unknown, fallback: string): string {
-  if (data && typeof data === 'object' && 'detail' in data) {
-    const detail = (data as { detail: unknown }).detail
-    if (typeof detail === 'string') {
-      return detail
-    }
-  }
-  return fallback
-}
-
-function formatUpdatedAt(value: string | null): string {
   if (!value) {
     return 'ещё не сохранялось'
   }
@@ -112,6 +102,9 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
   const [draftId, setDraftId] = useState('')
   const [materials, setMaterials] = useState(makeInitialMaterials)
   const [loading, setLoading] = useState(false)
+  const [downloading, setDownloading] = useState<
+    'single' | 'master' | null
+  >(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,7 +126,12 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
             const res = await fetch(`${base}/videos/${jobId}/${item.kind}`)
             const data: unknown = await res.json()
             if (!res.ok) {
-              throw new Error(getApiError(data, `${item.title}: HTTP ${res.status}`))
+              throw new Error(
+                formatApiErrorMessage(
+                  data,
+                  `${item.title}: HTTP ${res.status}`,
+                ),
+              )
             }
             return [item.kind, data as MaterialResponse] as const
           }),
@@ -192,7 +190,9 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(
+          formatApiErrorMessage(data, `HTTP ${res.status}`),
+        )
       }
       const saved = data as MaterialResponse
       updateMaterial(config.kind, {
@@ -231,7 +231,9 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
       )
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(
+          formatApiErrorMessage(data, `HTTP ${res.status}`),
+        )
       }
       const saved = data as MaterialResponse
       updateMaterial(config.kind, {
@@ -245,6 +247,52 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
       }
     } finally {
       updateMaterial(config.kind, { saving: false })
+    }
+  }
+
+  async function readDownloadError(res: Response, fallback: string) {
+    try {
+      const data: unknown = await res.json()
+      return formatApiErrorMessage(data, fallback)
+    } catch {
+      return fallback
+    }
+  }
+
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.append(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function downloadDocx(
+    kind: 'single' | 'master',
+    path: string,
+    filename: string,
+  ) {
+    setDownloading(kind)
+    setMessage(null)
+    setError(null)
+    try {
+      const res = await fetch(`${getApiBaseUrl()}${path}`)
+      if (!res.ok) {
+        const detail = await readDownloadError(res, `HTTP ${res.status}`)
+        throw new Error(detail)
+      }
+      const blob = await res.blob()
+      saveBlob(blob, filename)
+      setMessage('DOCX скачан.')
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e.message)
+      }
+    } finally {
+      setDownloading(null)
     }
   }
 
@@ -291,19 +339,53 @@ export function MaterialsPage({ jobId, onSetJobId }: Props) {
             <span>
               <strong>job_id:</strong> {jobId}
             </span>
-            <button
-              className="materials__change-id"
-              type="button"
-              onClick={() => {
-                onSetJobId(null)
-                setDraftId('')
-                setMaterials(makeInitialMaterials())
-                setError(null)
-                setMessage(null)
-              }}
-            >
-              Сменить job
-            </button>
+            <div className="materials__actions">
+              <button
+                className="materials__btn"
+                type="button"
+                disabled={downloading != null}
+                onClick={() => {
+                  void downloadDocx(
+                    'single',
+                    `/knowledge/export/${jobId}`,
+                    `knowledge-job-${jobId}.docx`,
+                  )
+                }}
+              >
+                {downloading === 'single'
+                  ? 'Экспорт…'
+                  : 'Скачать DOCX'}
+              </button>
+              <button
+                className="materials__btn"
+                type="button"
+                disabled={downloading != null}
+                onClick={() => {
+                  void downloadDocx(
+                    'master',
+                    '/knowledge/export/master',
+                    'knowledge-master.docx',
+                  )
+                }}
+              >
+                {downloading === 'master'
+                  ? 'Экспорт master…'
+                  : 'Скачать master DOCX'}
+              </button>
+              <button
+                className="materials__change-id"
+                type="button"
+                onClick={() => {
+                  onSetJobId(null)
+                  setDraftId('')
+                  setMaterials(makeInitialMaterials())
+                  setError(null)
+                  setMessage(null)
+                }}
+              >
+                Сменить job
+              </button>
+            </div>
           </div>
 
           {loading ? (

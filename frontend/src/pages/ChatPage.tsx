@@ -1,4 +1,5 @@
 import { type FormEvent, useId, useState } from 'react'
+import { formatApiErrorMessage } from '../api/apiError'
 import { getApiBaseUrl } from '../config'
 
 type ChatMode = 'strict' | 'explain'
@@ -21,17 +22,6 @@ type ChatResponse = {
   sections: string[]
 }
 
-function getApiError(data: unknown, fallback: string): string {
-  if (data && typeof data === 'object' && 'detail' in data) {
-    const detail = (data as { detail: unknown }).detail
-    if (typeof detail === 'string') {
-      return detail
-    }
-  }
-  return fallback
-}
-
-export function ChatPage() {
   const id = useId()
   const [question, setQuestion] = useState('')
   const [mode, setMode] = useState<ChatMode>('strict')
@@ -65,7 +55,9 @@ export function ChatPage() {
       })
       const data: unknown = await res.json()
       if (!res.ok) {
-        throw new Error(getApiError(data, `HTTP ${res.status}`))
+        throw new Error(
+          formatApiErrorMessage(data, `HTTP ${res.status}`),
+        )
       }
       setAnswer(data as ChatResponse)
     } catch (e) {

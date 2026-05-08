@@ -1,6 +1,7 @@
 """Маршруты сборки базы знаний."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,11 @@ from app.schemas.knowledge import (
     SearchResultItem,
 )
 from app.services.chunking import rebuild_chunks_for_block
+from app.services.docx_export import (
+    DOCX_MEDIA_TYPE,
+    render_master_docx,
+    render_single_block_docx,
+)
 from app.services.embeddings import (
     rebuild_embeddings_for_block,
     search_chunks,
@@ -87,6 +93,16 @@ def _build_block_or_http_error(
         raise HTTPException(status_code=404, detail=str(err)) from err
     except MissingMaterialError as err:
         raise _missing_material_http_error(err) from err
+
+
+def _docx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 @router.get(
@@ -209,6 +225,35 @@ def search_knowledge(
             for result in results
         ],
     )
+
+
+@router.get("/export/master")
+def export_master_docx(
+    db: Session = Depends(get_session),
+) -> Response:
+    """Скачать master-DOCX из всех блоков базы знаний."""
+    blocks = list(
+        db.execute(
+            select(KnowledgeBlock).order_by(KnowledgeBlock.id),
+        ).scalars(),
+    )
+    if not blocks:
+        raise HTTPException(
+            status_code=404,
+            detail="В базе знаний ещё нет блоков для экспорта.",
+        )
+    return _docx_response(render_master_docx(blocks), "knowledge-master.docx")
+
+
+@router.get("/export/{job_id}")
+def export_knowledge_block_docx(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> Response:
+    """Скачать DOCX для одного сохранённого knowledge block."""
+    block = _get_block_or_404(job_id, db)
+    filename = f"knowledge-job-{job_id}.docx"
+    return _docx_response(render_single_block_docx(block), filename)
 
 
 @router.post(

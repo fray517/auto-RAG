@@ -1,9 +1,11 @@
 import { useEffect, useId, useState } from 'react'
+import { formatApiErrorMessage } from '../api/apiError'
 import { getApiBaseUrl } from '../config'
 import {
   STAGE_LABELS_RU,
   STAGE_ORDER,
   indexOfStage,
+  labelForStage,
 } from '../domain/pipelineStages'
 
 const POLL_MS = 2500
@@ -14,6 +16,12 @@ type JobStatusResponse = {
   stage: string
   progress_percent: number | null
   error: string | null
+}
+
+type DeleteJobResponse = {
+  job_id: number
+  deleted_records: Record<string, number>
+  deleted_files: string[]
 }
 
 type Props = {
@@ -33,8 +41,10 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
   const id = useId()
   const [draftId, setDraftId] = useState('')
   const [loading, setLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [inputError, setInputError] = useState<string | null>(null)
   const [pollError, setPollError] = useState<string | null>(null)
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null)
   const [status, setStatus] = useState<JobStatusResponse | null>(null)
 
   useEffect(() => {
@@ -52,20 +62,15 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
         const res = await fetch(
           `${getApiBaseUrl()}/videos/${jobId}/status`,
         )
+        const data: unknown = await res.json()
         if (!res.ok) {
-          const errData: unknown = await res.json()
-          const detail =
-            errData &&
-            typeof errData === 'object' &&
-            'detail' in errData &&
-            typeof (errData as { detail: unknown }).detail === 'string'
-              ? (errData as { detail: string }).detail
-              : `HTTP ${res.status}`
-          throw new Error(detail)
+          throw new Error(
+            formatApiErrorMessage(data, `HTTP ${res.status}`),
+          )
         }
-        const data = (await res.json()) as JobStatusResponse
+        const payload = data as JobStatusResponse
         if (!cancelled) {
-          setStatus(data)
+          setStatus(payload)
           setPollError(null)
         }
       } catch (e) {
@@ -94,6 +99,51 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
   const currentIndex = status
     ? indexOfStage(status.stage)
     : 0
+
+  async function deleteCurrentJob() {
+    if (jobId == null || deleting) {
+      return
+    }
+    const ok = window.confirm(
+      `Удалить job ${jobId} и все связанные данные?`,
+    )
+    if (!ok) {
+      return
+    }
+
+    setDeleting(true)
+    setPollError(null)
+    setDeleteMessage(null)
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/videos/${jobId}`, {
+        method: 'DELETE',
+      })
+      const data: unknown = await res.json()
+      if (!res.ok) {
+        throw new Error(
+          formatApiErrorMessage(data, `HTTP ${res.status}`),
+        )
+      }
+      const deleted = data as DeleteJobResponse
+      const recordsCount = Object.values(deleted.deleted_records).reduce(
+        (sum, value) => sum + value,
+        0,
+      )
+      setDeleteMessage(
+        `Job ${deleted.job_id} удалена. Записей: ${recordsCount}, ` +
+          `путей: ${deleted.deleted_files.length}.`,
+      )
+      setStatus(null)
+      setDraftId('')
+      onSetJobId(null)
+    } catch (e) {
+      if (e instanceof Error) {
+        setPollError(e.message)
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <section className="processing" aria-labelledby={`${id}-h`}>
@@ -139,6 +189,11 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
               {inputError}
             </p>
           ) : null}
+          {deleteMessage ? (
+            <p className="processing__ok" role="status">
+              {deleteMessage}
+            </p>
+          ) : null}
         </div>
       ) : (
         <>
@@ -161,6 +216,7 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
             <button
               type="button"
               className="processing__change-id"
+              disabled={deleting}
               onClick={() => {
                 onSetJobId(null)
                 setDraftId('')
@@ -169,6 +225,16 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
               }}
             >
               Сменить job
+            </button>
+            <button
+              type="button"
+              className="processing__delete-id"
+              disabled={deleting}
+              onClick={() => {
+                void deleteCurrentJob()
+              }}
+            >
+              {deleting ? 'Удаление…' : 'Удалить job'}
             </button>
           </p>
           {loading && !status ? (
@@ -182,9 +248,18 @@ export function ProcessingPage({ jobId, onSetJobId }: Props) {
             </p>
           ) : null}
           {status?.error ? (
-            <p className="processing__err" role="alert">
-              Ошибка пайплайна: {status.error}
-            </p>
+            <div className="processing__err-block" role="alert">
+              <p className="processing__err-title">Сбой обработки</p>
+              <p className="processing__err-stage">
+                Этап:{' '}
+                <strong>{labelForStage(status.stage)}</strong>
+                <span className="processing__err-stage-id">
+                  {' '}
+                  ({status.stage})
+                </span>
+              </p>
+              <p className="processing__err-text">{status.error}</p>
+            </div>
           ) : null}
           <ol className="processing__steps" aria-label="Этапы обработки">
             {STAGE_ORDER.map((stageId, i) => {

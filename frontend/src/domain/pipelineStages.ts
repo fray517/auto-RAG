@@ -30,3 +30,10 @@ export function indexOfStage(stage: string): number {
   const i = STAGE_ORDER.indexOf(stage as StageId)
   return i === -1 ? 0 : i
 }
+
+export function labelForStage(stage: string): string {
+  if (stage in STAGE_LABELS_RU) {
+    return STAGE_LABELS_RU[stage as StageId]
+  }
+  return stage || 'неизвестный этап'
+}

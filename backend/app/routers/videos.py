@@ -44,11 +44,17 @@ from app.schemas.video_results import (
     SlidesResponse,
     SummaryResponse,
 )
+from app.schemas.video_delete import VideoJobDeleteResponse
 from app.schemas.video_status import VideoJobStatusResponse
 from app.schemas.video_upload import VideoUploadResponse
 from app.services.audio_ffmpeg import find_input_video
 from app.services.checklist_llm import generate_checklist
 from app.services.clean_transcript_llm import clean_transcript
+from app.services.job_cleanup import (
+    JobCleanupError,
+    delete_job_files,
+    delete_job_records,
+)
 from app.services.keyframes_ffmpeg import extract_frame_at_timestamp
 from app.services.manual_guide_llm import generate_manual_guide
 from app.services.summary_llm import generate_summary
@@ -245,6 +251,26 @@ def get_video_job_status(
     """Текущий статус, этап, прогресс и ошибка (если были)."""
     job = _get_job_or_404(job_id, db)
     return _status_payload(job)
+
+
+@router.delete("/{job_id}", response_model=VideoJobDeleteResponse)
+def delete_video_job(
+    job_id: int,
+    db: Session = Depends(get_session),
+) -> VideoJobDeleteResponse:
+    """Удалить job, связанные записи и служебные файлы."""
+    _get_job_or_404(job_id, db)
+    try:
+        deleted_files = delete_job_files(job_id)
+    except JobCleanupError as err:
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    deleted_records = delete_job_records(job_id, db)
+    return VideoJobDeleteResponse(
+        job_id=job_id,
+        deleted_records=deleted_records,
+        deleted_files=deleted_files,
+    )
 
 
 @router.get("/{job_id}/file")

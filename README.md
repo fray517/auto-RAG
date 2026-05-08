@@ -19,28 +19,90 @@ auto-RAG/
   README.md
 ```
 
+## Установка
+
+**Через Docker (рекомендуется):** установите [Docker Desktop](https://www.docker.com/products/docker-desktop/) для Windows. Клонировать репозиторий, перейти в корень проекта в PowerShell.
+
+**Без Docker — для разработки:** Python 3.11+ и Node.js 20+ (LTS). Пакеты: backend — `requirements.txt`, frontend — `npm install` в каталоге `frontend`.
+
 ## Переменные окружения
 
-1. Скопируйте `env.example` в `.env` в корне проекта.
-2. Заполните значения (см. комментарии в `env.example`).
+1. Скопируйте `env.example` в `.env` в корне проекта:
+   `Copy-Item -Path .\env.example -Destination .\.env`
+2. Заполните значения по комментариям в `env.example`. Обязательно:
+   - `OPENAI_API_KEY` — для LLM и встроенных AI‑шагов;
+   - `VITE_API_BASE_URL` — URL API для браузера (в Docker по умолчанию `http://localhost:8005`).
+3. Дополнительно: `LOG_LEVEL` (уровень логов backend, по умолчанию `INFO`).
 
-## Запуск
+Docker Compose подхватывает `.env` из корня; при изменении переменных после
+подъёма контейнеров пересоздайте сервисы (см. ниже).
 
-Пошаговые детали — в `plan.md` (этап 0 и далее).
+## Запуск через Docker
 
-**Всё в Docker (backend + frontend):** в корне:
-`docker compose up --build`. UI: `http://localhost:3000` (статус API на
-главной), API: `http://localhost:8005/health`. В `.env` должен быть
-`VITE_API_BASE_URL` (см. `env.example`).
+В корне проекта:
 
-**Только backend (локально):**
-`Set-Location backend; python -m pip install -r requirements.txt; python -m uvicorn app.main:app --reload --port 8005`
+```powershell
+docker compose up --build
+```
 
-**Только frontend (dev, порт 3000):** в корневом `.env` — `VITE_API_BASE_URL`
-и запуск:
-`Set-Location frontend; npm install; npm run dev`
-(без Docker backend на `http://localhost:8005` статус на главной покажет
-«недоступен»).
+- UI: `http://localhost:3000`
+- API: `http://localhost:8005`, проверка: `http://localhost:8005/health`
+
+После правок кода образов пересоберите и пересоздайте контейнеры:
+
+```powershell
+docker compose build
+docker compose up -d --force-recreate
+```
+
+Логи backend смотрите в выводе сервиса `backend` или через `docker compose logs
+-f backend`.
+
+## Запуск без Docker
+
+**Backend:**
+
+```powershell
+Set-Location backend
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8005
+```
+
+**Frontend (dev, порт 3000):** в корневом `.env` задайте `VITE_API_BASE_URL`
+(например `http://localhost:8005`), затем:
+
+```powershell
+Set-Location frontend
+npm install
+npm run dev
+```
+
+Если backend не запущен, на главной будет статус «недоступен».
+
+## Порядок использования (UI)
+
+1. **Главная** — проверка доступности API.
+2. **Загрузка** — выбор видео, создание задачи (job); при необходимости кадры
+   слайдов.
+3. **Обработка** — отслеживание пайплайна, этапа и ошибок при сбое.
+4. **Транскрипт** — правка сырого и очищенного текста.
+5. **Материалы** — конспект, методичка, чек‑лист и связанные действия.
+6. **Визуализация / база знаний** — блок знаний, дифф, поиск по chunks.
+7. **Чат** — RAG‑ответы с источниками.
+
+Подробности этапов — в `plan.md`.
+
+## Типовой сценарий проверки (smoke)
+
+1. Поднять стек (`docker compose up --build` или локально backend + frontend).
+2. Убедиться в `GET /health` (200).
+3. Загрузить короткое тестовое видео, дождаться завершения или явного сбоя на
+   странице обработки (этап и текст ошибки должны быть понятны).
+4. Открыть транскрипт и материалы, убедиться, что данные подтягиваются.
+5. При изменении `.env` или Dockerfile — пересборка и `--force-recreate`, как
+   выше.
+
+Пошаговые детали и критерии шагов — в `plan.md`.
 
 ## Лицензия
 
